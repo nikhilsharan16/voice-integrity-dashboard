@@ -3,15 +3,28 @@ import { ShieldCheck, ShieldAlert, ShieldX, Mic } from "lucide-react";
 import Waveform from "./Waveform.jsx";
 import { MAX_WINDOWS } from "../lib/scoring.js";
 
-export default function Hero({ running, bars, sessionLabel, sourceTag, tick, band, risk }) {
+export default function Hero({ 
+  running, 
+  activeSession, 
+  hasCompletedSession, 
+  bars, 
+  sessionLabel, 
+  sourceTag, 
+  tick, 
+  band, 
+  risk 
+}) {
+  // A session is considered loaded if it's currently running OR if it has finished processing
+  const isLoaded = activeSession || hasCompletedSession;
+
   return (
     <div className="vie-hero">
       <div>
         <Waveform bars={bars} active={running} />
         <div className="vie-caller-row">
           <Mic size={14} />
-          {running ? sessionLabel : "No recording loaded"}
-          {sourceTag && <span className="vie-tag">{sourceTag}</span>}
+          {isLoaded ? sessionLabel : "No recording loaded"}
+          {isLoaded && sourceTag && <span className="vie-tag">{sourceTag}</span>}
           {running && (
             <span className="vie-mono" style={{ marginLeft: "auto" }}>
               window {tick}/{MAX_WINDOWS}

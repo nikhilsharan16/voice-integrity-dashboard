@@ -9,7 +9,7 @@ import SessionLog from "./components/SessionLog.jsx";
 import { analyzeWindow, computeRisk, riskBand, reasonsFor, genPhrase, MAX_WINDOWS, TICK_MS } from "./lib/scoring.js";
 
 export default function App() {
-  const [session, setSession] = useState(null); // { label, source, profileKey, peaks }
+  const [session, setSession] = useState(null);
   const [running, setRunning] = useState(false);
   const [tick, setTick] = useState(0);
   const [history, setHistory] = useState([]);
@@ -20,7 +20,8 @@ export default function App() {
     { name: "CEO — A. Varma", id: "SPK-0087" },
   ]);
   const [challenge, setChallenge] = useState(null);
-  const intervalRef = useRef(null);
+  
+  const timeoutRef = useRef(null);
   const streakRef = useRef(0);
 
   const latest = history[history.length - 1];
@@ -28,7 +29,7 @@ export default function App() {
   const band = latest ? riskBand(risk) : "idle";
 
   const startAnalysis = (payload) => {
-    clearInterval(intervalRef.current);
+    clearTimeout(timeoutRef.current);
     setSession(payload);
     setHistory([]);
     setTick(0);
@@ -39,7 +40,7 @@ export default function App() {
 
   const endAnalysis = useCallback(
     (auto = false) => {
-      clearInterval(intervalRef.current);
+      clearTimeout(timeoutRef.current);
       setRunning(false);
       setHistory((h) => {
         if (h.length > 0 && session) {
@@ -67,9 +68,18 @@ export default function App() {
 
   useEffect(() => {
     if (!running || !session) return;
-    intervalRef.current = setInterval(() => {
+
+    let active = true; // Prevents race conditions during unmounts/React Strict Mode
+
+    const runTick = () => {
+      if (!active) return;
+
       setTick((t) => {
         const next = t + 1;
+        
+        // Failsafe: Prevent execution beyond MAX_WINDOWS
+        if (next > MAX_WINDOWS) return t;
+
         const { spoof, match } = analyzeWindow(session.profileKey);
         const risk = computeRisk(spoof, match);
         const band = riskBand(risk);
@@ -77,8 +87,6 @@ export default function App() {
 
         setHistory((h) => [...h, { t: next, spoof, match, risk, streak: streakRef.current }].slice(-MAX_WINDOWS));
 
-        // Use the real decoded waveform if we have one (uploaded file),
-        // cycling through it; otherwise animate a plausible fake one.
         if (session.peaks && session.peaks.length > 0) {
           const offset = next % session.peaks.length;
           setBars(
@@ -92,12 +100,24 @@ export default function App() {
         }
 
         if (next >= MAX_WINDOWS) {
+          active = false;
           setTimeout(() => endAnalysis(true), 250);
+        } else {
+          // Schedule the next tick only after this one completes
+          timeoutRef.current = setTimeout(runTick, TICK_MS);
         }
+
         return next;
       });
-    }, TICK_MS);
-    return () => clearInterval(intervalRef.current);
+    };
+
+    // Kick off the loop
+    timeoutRef.current = setTimeout(runTick, TICK_MS);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutRef.current);
+    };
   }, [running, session, endAnalysis]);
 
   const triggerChallenge = () => setChallenge({ phrase: genPhrase(), status: "waiting" });
@@ -140,6 +160,8 @@ export default function App() {
 
         <Hero
           running={running}
+          activeSession={!!session} 
+          hasCompletedSession={!running && history.length > 0} 
           bars={bars}
           sessionLabel={session?.label}
           sourceTag={session?.source === "upload" ? "uploaded" : session?.source === "demo" ? "demo" : null}
